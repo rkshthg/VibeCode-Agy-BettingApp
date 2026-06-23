@@ -1,6 +1,8 @@
-# ShitCoin - Collaborative Team Betting Board
+# ShitCoin - Team Betting Dashboard (Vercel Edition)
 
 ShitCoin (₹) is an interactive, collaborative betting web application designed for small teams to track wagers on various events. The app uses a **parimutuel betting system** where all wagers go into a shared pool and are distributed proportionally to the winners upon event resolution.
+
+This repository is optimized **specifically for deployment on Vercel** and connects to a serverless Redis database (like Upstash Redis or Vercel KV) for persistent global state.
 
 ---
 
@@ -11,65 +13,63 @@ ShitCoin (₹) is an interactive, collaborative betting web application designed
 - **Parimutuel Payouts:** Winnings are calculated using a parimutuel algorithm. If nobody wins, wagers are refunded.
 - **Live Leaderboard:** Tracks members ranked by wins and total balance.
 - **Interactive Odds Simulator:** Dynamically previews estimated odds multiplier and payout returns before you submit a bet.
-- **Auto-Tunneling (Public Access):** Features a built-in tunnel that exposes the application to the public internet on container startup—no router configuration or custom domains required.
+- **Serverless Ready:** Built with a stateless Express backend designed to run on Vercel Serverless Functions.
 - **Gold & Brown Theme:** Sleek glassmorphic dashboard styled with gold accents, deep mocha backgrounds, and custom ambient glows.
 
 ---
 
-## 🚀 How to Run the Application
+## 🚀 How to Deploy on Vercel
 
-### Prerequisites
-- [Docker](https://www.docker.com/) and [Docker Compose](https://docs.docker.com/compose/) installed.
+To host this application for your team, you will need a Vercel account and a free Upstash Redis database.
 
-### Start the Container
-1. Clone this repository and navigate to the directory:
-   ```bash
-   cd VibeCode-Agy-BettingApp
-   ```
-2. Start the container in detached mode:
-   ```bash
-   docker compose up -d
-   ```
-3. Access the web app locally at:
-   [http://localhost:3000](http://localhost:3000)
+### Step 1: Set Up a Free Database
+Since serverless environments do not have persistent local files, we use a cloud database. We recommend **Upstash Redis** (which is 100% free up to 10,000 requests/day):
+1. Go to the [Upstash Console](https://console.upstash.com/) and log in (e.g. with GitHub).
+2. Click **Create Database**.
+3. Name it `shitcoin-db`, select a region close to your team, and click **Create**.
+4. Scroll down to the **REST API** section and copy:
+   - `UPSTASH_REDIS_REST_URL` (this will map to `KV_REST_API_URL` in Vercel)
+   - `UPSTASH_REDIS_REST_TOKEN` (this will map to `KV_REST_API_TOKEN` in Vercel)
 
-### Share with Outside Networks
-Every time the container starts, it establishes a secure, public tunnel using `localtunnel`. To retrieve your unique URL:
-1. Run the logs command:
+### Step 2: Deploy to Vercel
+1. Go to [Vercel](https://vercel.com/) and sign up with GitHub.
+2. Click **Add New > Project**.
+3. Import your **`VibeCode-Agy-BettingApp`** repository.
+4. Expand the **Environment Variables** section and add the two variables copied from Upstash:
+   - **Key:** `KV_REST_API_URL` / **Value:** *(paste the REST URL)*
+   - **Key:** `KV_REST_API_TOKEN` / **Value:** *(paste the REST Token)*
+5. Click **Deploy**.
+
+Vercel will build and deploy your project, giving you a secure, public domain (e.g., `https://vibecode-agy-bettingapp.vercel.app`) where your team can access the dashboard.
+
+---
+
+## 💻 Local Development
+
+If you want to run the application locally for testing:
+1. Create a `.env` file in the root of the project with your database variables:
+   ```env
+   KV_REST_API_URL=https://your-database-url.upstash.io
+   KV_REST_API_TOKEN=your-token-here
+   ```
+2. Run:
    ```bash
-   docker logs shitbets-app-1
+   npm install
+   npm start
    ```
-2. Look for the public tunnel address:
-   ```text
-   --------------------------------------------------
-   🚀 Public Tunnel URL: https://shitcoin-bets-XXXXXX.loca.lt
-   --------------------------------------------------
-   ```
-3. Share that link with your teammates outside your local network.
+3. Open your browser to `http://localhost:3000`.
 
 ---
 
 ## 📂 File Structure
 
 ```text
-├── data/
-│   └── db.json         # Local JSON Database (seeded automatically, git ignored)
 ├── public/
 │   ├── index.html      # Main HTML structure
 │   ├── style.css       # Custom glassmorphic CSS styling
 │   └── app.js          # Interactive frontend logic and client API handlers
-├── Dockerfile          # Multi-stage Docker build recipe
-├── docker-compose.yml  # Docker Compose config mapping volume mount & port 3000
+├── vercel.json         # Vercel Serverless Function & SPA Routing configuration
 ├── package.json        # Node dependency configurations
-├── server.js           # Express API endpoints & programmtic localtunnel client
+├── server.js           # Serverless Express API endpoints
 └── README.md           # Documentation
 ```
-
----
-
-## ⚙️ How it Works (Parimutuel Calculation)
-
-When an event is resolved, the backend calculates the payout for each winner using:
-$$\text{Payout} = \frac{\text{User Bet (₹500)}}{\text{Total Wagers on Winning Option}} \times \text{Total Pool}$$
-
-If an event is deleted or if it is resolved with an option that received no bets, all participants receive a **100% refund**.

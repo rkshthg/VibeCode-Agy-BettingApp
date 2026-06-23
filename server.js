@@ -1,77 +1,40 @@
 const express = require('express');
-const localtunnel = require('localtunnel');
-const fs = require('fs');
 const path = require('path');
 const { Redis } = require('@upstash/redis');
 
 const app = express();
-const PORT = process.env.PORT || 3000;
-const DB_DIR = path.join(__dirname, 'data');
-const DB_FILE = path.join(DB_DIR, 'db.json');
-
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Initialize Upstash Redis/KV database if environment variables exist
-let redis = null;
-if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
-  redis = new Redis({
-    url: process.env.KV_REST_API_URL,
-    token: process.env.KV_REST_API_TOKEN
-  });
-  console.log('Upstash Redis/KV database connection initialized.');
-} else {
-  console.log('Using local JSON file database (data/db.json).');
-  // Ensure database directory and file exist for local mode
-  if (!fs.existsSync(DB_DIR)) {
-    fs.mkdirSync(DB_DIR, { recursive: true });
-  }
+// Initialize Upstash Redis database (supports both Vercel KV and Upstash env names)
+const redisUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
+const redisToken = process.env.KV_REST_API_TOKEN || process.env.UPSTASH_REDIS_REST_TOKEN;
 
-  if (!fs.existsSync(DB_FILE)) {
-    const initialData = {
-      users: [],
-      events: []
-    };
-    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2));
-  }
+if (!redisUrl || !redisToken) {
+  console.warn('WARNING: KV_REST_API_URL and KV_REST_API_TOKEN must be configured in environment variables.');
 }
 
-// Database Helpers (Async)
-async function readDb() {
-  if (redis) {
-    try {
-      const data = await redis.get('shitcoin_state');
-      return data || { users: [], events: [] };
-    } catch (err) {
-      console.error('Error reading from Redis KV:', err);
-      return { users: [], events: [] };
-    }
-  }
+const redis = new Redis({
+  url: redisUrl || '',
+  token: redisToken || ''
+});
 
+// Database Helpers (Async Redis)
+async function readDb() {
   try {
-    const raw = fs.readFileSync(DB_FILE, 'utf8');
-    return JSON.parse(raw);
+    const data = await redis.get('shitcoin_state');
+    return data || { users: [], events: [] };
   } catch (err) {
-    console.error('Error reading database file:', err);
+    console.error('Error reading from Redis KV:', err);
     return { users: [], events: [] };
   }
 }
 
 async function writeDb(data) {
-  if (redis) {
-    try {
-      await redis.set('shitcoin_state', data);
-      return;
-    } catch (err) {
-      console.error('Error writing to Redis KV:', err);
-      return;
-    }
-  }
-
   try {
-    fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
+    await redis.set('shitcoin_state', data);
   } catch (err) {
-    console.error('Error writing to database file:', err);
+    console.error('Error writing to Redis KV:', err);
   }
 }
 
@@ -150,9 +113,9 @@ app.post('/api/events', async (req, res) => {
     description: (description || '').trim(),
     options: options.map(o => o.trim()).filter(Boolean),
     creator: creator.trim(),
-    status: 'open', // 'open' | 'resolved'
+    status: 'open',
     winningOption: null,
-    bets: [] // Array of { username, option, amount }
+    bets: []
   };
 
   if (newEvent.options.length < 2) {
@@ -314,27 +277,10 @@ app.get('*', (req, res) => {
 // Export Express app instance for Vercel Serverless compatibility
 module.exports = app;
 
-// Start local port listener only if not deployed in Vercel
+// Start local port listener only for local testing (not in serverless environment)
 if (!process.env.VERCEL) {
-  const server = app.listen(PORT, async () => {
-    console.log(`ShitCoin server running on port ${PORT}`);
-
-    // Start localtunnel programmatically
-    try {
-      const subdomain = process.env.SUBDOMAIN || `shitcoin-bets-${Date.now().toString().slice(-6)}`;
-      const tunnel = await localtunnel({
-        port: PORT,
-        subdomain: subdomain
-      });
-      console.log(`\n--------------------------------------------------`);
-      console.log(`🚀 Public Tunnel URL: ${tunnel.url}`);
-      console.log(`--------------------------------------------------\n`);
-
-      tunnel.on('close', () => {
-        console.log('Public tunnel closed');
-      });
-    } catch (err) {
-      console.error('Error starting localtunnel:', err.message);
-    }
+  const PORT = process.env.PORT || 3000;
+  app.listen(PORT, () => {
+    console.log(`Server running locally on port ${PORT}`);
   });
 }
