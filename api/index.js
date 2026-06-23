@@ -338,6 +338,42 @@ app.delete('/api/events/:id/bets', adminRequired, async (req, res) => {
   res.json({ message: 'Wager removed and refunded successfully.', event });
 });
 
+// Add a custom option to an Event (Any logged in user)
+app.post('/api/events/:id/options', async (req, res) => {
+  const { id } = req.params;
+  const { option } = req.body;
+
+  if (!option || typeof option !== 'string' || !option.trim()) {
+    return res.status(400).json({ error: 'Option text is required.' });
+  }
+
+  const trimmedOption = option.trim();
+  const db = await readDb();
+
+  const event = db.events.find(e => e.id === id);
+  if (!event) {
+    return res.status(404).json({ error: 'Event not found.' });
+  }
+
+  if (event.status !== 'open') {
+    return res.status(400).json({ error: 'Cannot add options to a resolved event.' });
+  }
+
+  // Case-insensitive duplicate check
+  const optionExists = event.options.some(
+    o => o.toLowerCase() === trimmedOption.toLowerCase()
+  );
+
+  if (optionExists) {
+    return res.status(400).json({ error: 'This option already exists on this event.' });
+  }
+
+  event.options.push(trimmedOption);
+  await writeDb(db);
+
+  res.json({ message: 'Option added successfully', event });
+});
+
 // Resolve an Event (Admin Only)
 app.post('/api/events/:id/resolve', adminRequired, async (req, res) => {
   const { id } = req.params;

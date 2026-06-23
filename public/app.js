@@ -548,6 +548,12 @@ function renderEvents() {
             ${optionButtons}
           </div>
 
+          <!-- Add Custom Option Form -->
+          <div class="add-custom-option-row" style="display:flex; gap:0.5rem; margin-bottom:1rem; padding-top:0.75rem; border-top:1px dashed var(--border-color);">
+            <input type="text" id="custom-option-input-${event.id}" placeholder="Suggest custom option..." style="flex:1; background:rgba(0,0,0,0.3); border:1px solid var(--border-color); border-radius:8px; color:white; padding:0.4rem 0.8rem; font-size:0.8rem; outline:none;">
+            <button class="btn btn-secondary btn-sm" onclick="addCustomOption('${event.id}')" style="padding:0.4rem 0.8rem;">Add Option</button>
+          </div>
+
           <div class="bet-input-row" style="justify-content: space-between;">
             <div class="static-bet-badge" style="font-family: var(--font-title); font-weight: 700; font-size: 1.05rem; color: var(--primary); display: flex; align-items: center; gap: 0.5rem; background: rgba(255,255,255,0.03); border: 1px solid var(--border-color); padding: 0.6rem 1rem; border-radius: 10px;">
               <span>Wager Size:</span>
@@ -679,6 +685,37 @@ window.placeBet = async function(eventId) {
   } catch (err) {
     console.error(err);
     alert('Error placing bet');
+  }
+};
+
+// Add Custom Option API call
+window.addCustomOption = async function(eventId) {
+  const input = document.getElementById(`custom-option-input-${eventId}`);
+  if (!input) return;
+
+  const optionVal = input.value.trim();
+  if (!optionVal) {
+    alert('Please enter an option name.');
+    return;
+  }
+
+  try {
+    const res = await apiFetch(`/api/events/${eventId}/options`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ option: optionVal })
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      input.value = '';
+      fetchState(true);
+    } else {
+      alert(data.error || 'Failed to add option.');
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Error adding option.');
   }
 };
 
