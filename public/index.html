@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ShitCoin - Team Betting Board</title>
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;700;800&family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <!-- FontAwesome Icons -->
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+  <!-- Custom Stylesheet -->
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <!-- Background Glows -->
+  <div class="glow glow-1"></div>
+  <div class="glow glow-2"></div>
+
+  <div class="app-container">
+    <!-- Header -->
+    <header class="app-header">
+      <div class="logo-area">
+        <div class="logo-icon">
+          <i class="fa-solid fa-coins"></i>
+        </div>
+        <div class="logo-text">
+          <h1>ShitCoin</h1>
+          <span>Team Betting Board</span>
+        </div>
+      </div>
+
+      <!-- User Session / Balance Panel -->
+      <div id="user-panel" class="user-panel glass">
+        <!-- Dynamic content injected here by JS -->
+        <div class="loader-spinner"></div>
+      </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="app-main">
+      
+      <!-- Left Column: Events & Creation -->
+      <section class="main-left">
+        
+        <!-- Toggle button to show event creator -->
+        <div class="actions-row">
+          <div class="search-box glass">
+            <i class="fa-solid fa-magnifying-glass"></i>
+            <input type="text" id="event-search" placeholder="Search events...">
+          </div>
+          <button id="toggle-creator-btn" class="btn btn-primary">
+            <i class="fa-solid fa-plus"></i> Create New Event
+          </button>
+        </div>
+
+        <!-- Create Event Card (Hidden by default, toggled) -->
+        <div id="create-event-card" class="event-creator-card glass hidden">
+          <div class="card-header">
+            <h3><i class="fa-solid fa-bullhorn text-gradient"></i> Create New Event</h3>
+            <button id="close-creator-btn" class="btn-close"><i class="fa-solid fa-xmark"></i></button>
+          </div>
+          <form id="create-event-form">
+            <div class="form-group">
+              <label for="event-title">Event Title</label>
+              <input type="text" id="event-title" placeholder="e.g. Will our backend build succeed on the first try?" required>
+            </div>
+            <div class="form-group">
+              <label for="event-desc">Description (Optional)</label>
+              <textarea id="event-desc" rows="2" placeholder="Provide details or links for context..."></textarea>
+            </div>
+            
+            <div class="form-group">
+              <label>Betting Options</label>
+              <div id="options-container" class="options-inputs">
+                <div class="option-input-wrapper">
+                  <input type="text" class="event-option-input" placeholder="Option 1" required>
+                </div>
+                <div class="option-input-wrapper">
+                  <input type="text" class="event-option-input" placeholder="Option 2" required>
+                </div>
+              </div>
+              <button type="button" id="add-option-btn" class="btn btn-secondary btn-sm">
+                <i class="fa-solid fa-plus"></i> Add Option
+              </button>
+            </div>
+
+            <div class="form-actions">
+              <button type="submit" class="btn btn-success btn-full">Publish Event</button>
+            </div>
+          </form>
+        </div>
+
+        <!-- Events List -->
+        <div class="section-title">
+          <h2><i class="fa-solid fa-circle-play text-primary"></i> Active & Resolved Bets</h2>
+        </div>
+        <div id="events-list" class="events-list">
+          <!-- Dynamic cards injected here by JS -->
+          <div class="empty-state glass">
+            <i class="fa-solid fa-circle-notch fa-spin"></i>
+            <p>Loading events...</p>
+          </div>
+        </div>
+
+      </section>
+
+      <!-- Right Column: Leaderboard & Help -->
+      <section class="main-right">
+        
+        <!-- Leaderboard -->
+        <div class="leaderboard-card glass">
+          <div class="card-header">
+            <h2><i class="fa-solid fa-trophy text-amber"></i> Leaderboard</h2>
+          </div>
+          <div class="leaderboard-headers">
+            <span class="rank-hdr">Rank</span>
+            <span class="user-hdr">Member</span>
+            <span class="wins-hdr"><i class="fa-solid fa-circle-check"></i> Wins</span>
+            <span class="bal-hdr"><i class="fa-solid fa-coins"></i> Balance</span>
+          </div>
+          <div id="leaderboard-list" class="leaderboard-list">
+            <!-- Dynamic items injected here by JS -->
+            <div class="loader-spinner"></div>
+          </div>
+        </div>
+
+        <!-- How it works -->
+        <div class="info-card glass">
+          <h3><i class="fa-solid fa-circle-info text-info"></i> How does ShitCoin work?</h3>
+          <ul>
+            <li>
+              <strong>Parimutuel System:</strong> All Shit Coins bet on an event go into a single pool.
+            </li>
+            <li>
+              <strong>The Payout:</strong> When resolved, the entire pool is split among those who bet on the winning option, proportional to their bet.
+            </li>
+            <li>
+              <strong>Refunds:</strong> If you delete an event, or if an event is resolved with an option that has 0 bets, all wagers are returned.
+            </li>
+            <li>
+              <strong>Fair Play:</strong> This is a fun, zero-cost fictional currency platform to settle team disputes and make friendly bets!
+            </li>
+          </ul>
+        </div>
+
+      </section>
+
+    </main>
+  </div>
+
+  <!-- Registration/Login Modal Overlay (displays if user is not set) -->
+  <div id="login-modal" class="modal-overlay hidden">
+    <div class="modal-content glass">
+      <div class="modal-logo">
+        <i class="fa-solid fa-coins fa-3x text-gradient"></i>
+      </div>
+      <h2>Join the ShitBets Arena</h2>
+      <p>Enter a username to claim your initial <strong>₹100,000</strong> and start betting!</p>
+      
+      <form id="login-form">
+        <input type="text" id="login-username" placeholder="Username (e.g. Alice)" required minlength="2" maxlength="15">
+        <div id="login-error" class="error-msg hidden"></div>
+        <button type="submit" class="btn btn-success btn-full">Enter Arena</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Custom JS -->
+  <script src="app.js"></script>
+</body>
+</html>
