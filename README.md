@@ -68,8 +68,9 @@ If you want to run the application locally for testing:
 │   ├── index.html      # Main HTML structure
 │   ├── style.css       # Custom glassmorphic CSS styling
 │   └── app.js          # Interactive frontend logic and client API handlers
+├── api/
+│   └── index.js        # Serverless Express API endpoints
 ├── vercel.json         # Vercel Serverless Function & SPA Routing configuration
 ├── package.json        # Node dependency configurations
-├── server.js           # Serverless Express API endpoints
 └── README.md           # Documentation
 ```

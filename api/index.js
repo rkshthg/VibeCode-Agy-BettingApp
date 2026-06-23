@@ -4,7 +4,9 @@ const { Redis } = require('@upstash/redis');
 
 const app = express();
 app.use(express.json());
-app.use(express.static(path.join(__dirname, 'public')));
+
+// Serve static files for local testing
+app.use(express.static(path.join(__dirname, '../public')));
 
 // Initialize Upstash Redis database (supports both Vercel KV and Upstash env names)
 const redisUrl = process.env.KV_REST_API_URL || process.env.UPSTASH_REDIS_REST_URL;
@@ -269,9 +271,9 @@ app.post('/api/events/:id/resolve', async (req, res) => {
   res.json({ message: 'Event resolved successfully', event });
 });
 
-// Serve frontend fallback for SPA
+// Serve frontend fallback locally for SPA routing
 app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
+  res.sendFile(path.join(__dirname, '../public/index.html'));
 });
 
 // Export Express app instance for Vercel Serverless compatibility
