@@ -7,6 +7,15 @@ let appState = {
 let selectedOptions = {}; // eventId -> selectedOptionName
 let searchQuery = '';
 
+// HTTP Fetch Wrapper that automatically appends user authentication header
+async function apiFetch(url, options = {}) {
+  options.headers = options.headers || {};
+  if (currentUser) {
+    options.headers['x-user-username'] = currentUser;
+  }
+  return fetch(url, options);
+}
+
 // DOM Elements
 const loginModal = document.getElementById('login-modal');
 const loginForm = document.getElementById('login-form');
@@ -24,6 +33,20 @@ const optionsContainer = document.getElementById('options-container');
 const eventsList = document.getElementById('events-list');
 const leaderboardList = document.getElementById('leaderboard-list');
 
+// Admin Panel Elements
+const adminPanel = document.getElementById('admin-panel');
+const promoteAdminForm = document.getElementById('promote-admin-form');
+const promoteUsername = document.getElementById('promote-username');
+const promoteStatus = document.getElementById('promote-status');
+
+// Edit Event Modal Elements
+const editEventModal = document.getElementById('edit-event-modal');
+const editEventForm = document.getElementById('edit-event-form');
+const editEventId = document.getElementById('edit-event-id');
+const editEventTitle = document.getElementById('edit-event-title');
+const editEventDesc = document.getElementById('edit-event-desc');
+const closeEditModalBtn = document.getElementById('close-edit-modal-btn');
+
 // Initialize App
 document.addEventListener('DOMContentLoaded', () => {
   checkUserSession();
@@ -32,7 +55,7 @@ document.addEventListener('DOMContentLoaded', () => {
   // Refresh state every 5 seconds for basic real-time updates
   setInterval(() => {
     if (currentUser) {
-      fetchState(false); // fetch silently without rebuilding whole DOM if focused
+      fetchState(false); // fetch silently without rebuilding whole DOM
     }
   }, 5000);
 });
@@ -58,8 +81,7 @@ function setupEventListeners() {
     if (!username) return;
 
     try {
-      // Try to create user
-      const res = await fetch('/api/users', {
+      const res = await apiFetch('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ username })
@@ -68,14 +90,12 @@ function setupEventListeners() {
       const data = await res.json();
 
       if (res.status === 201) {
-        // Success
         currentUser = data.username;
         localStorage.setItem('shitcoin_username', currentUser);
         loginModal.classList.add('hidden');
         loginForm.reset();
         fetchState(true);
       } else if (res.status === 400 && data.error === 'Username is already taken') {
-        // Since this is a simple local/team app, log in directly if user already exists
         currentUser = username;
         localStorage.setItem('shitcoin_username', currentUser);
         loginModal.classList.add('hidden');
@@ -112,7 +132,6 @@ function setupEventListeners() {
     // Remove option listener
     div.querySelector('.btn-remove-opt').addEventListener('click', () => {
       div.remove();
-      // Re-index placeholders
       Array.from(optionsContainer.children).forEach((child, index) => {
         child.querySelector('input').placeholder = `Option ${index + 1}`;
       });
@@ -137,7 +156,7 @@ function setupEventListeners() {
     }
 
     try {
-      const res = await fetch('/api/events', {
+      const res = await apiFetch('/api/events', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -151,7 +170,6 @@ function setupEventListeners() {
       const data = await res.json();
       if (res.ok) {
         createEventForm.reset();
-        // Reset option fields to initial 2 fields
         optionsContainer.innerHTML = `
           <div class="option-input-wrapper">
             <input type="text" class="event-option-input" placeholder="Option 1" required>
@@ -176,12 +194,82 @@ function setupEventListeners() {
     searchQuery = e.target.value.toLowerCase().trim();
     renderEvents();
   });
+
+  // Promote User to Admin Form Submit
+  promoteAdminForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const target = promoteUsername.value.trim();
+    if (!target) return;
+
+    promoteStatus.classList.remove('hidden');
+    promoteStatus.style.color = 'var(--text-secondary)';
+    promoteStatus.textContent = 'Appointing...';
+
+    try {
+      const res = await apiFetch('/api/users/promote', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ targetUsername: target })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        promoteStatus.style.color = 'var(--primary)';
+        promoteStatus.textContent = `Successfully appointed ${target} as Admin.`;
+        promoteUsername.value = '';
+        fetchState(true);
+      } else {
+        promoteStatus.style.color = 'var(--danger)';
+        promoteStatus.textContent = data.error || 'Promotion failed.';
+      }
+    } catch (err) {
+      console.error(err);
+      promoteStatus.style.color = 'var(--danger)';
+      promoteStatus.textContent = 'Network error.';
+    }
+
+    setTimeout(() => {
+      promoteStatus.classList.add('hidden');
+    }, 5000);
+  });
+
+  // Close Edit Event Modal
+  closeEditModalBtn.addEventListener('click', () => {
+    editEventModal.classList.add('hidden');
+  });
+
+  // Edit Event Form Submit
+  editEventForm.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    const eventId = editEventId.value;
+    const title = editEventTitle.value.trim();
+    const description = editEventDesc.value.trim();
+
+    try {
+      const res = await apiFetch(`/api/events/${eventId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title, description })
+      });
+
+      const data = await res.json();
+      if (res.ok) {
+        editEventModal.classList.add('hidden');
+        fetchState(true);
+      } else {
+        alert(data.error || 'Failed to update event.');
+      }
+    } catch (err) {
+      console.error(err);
+      alert('Error updating event.');
+    }
+  });
 }
 
 // Fetch complete state from backend
 async function fetchState(triggerRender = true) {
   try {
-    const res = await fetch('/api/state');
+    const res = await apiFetch('/api/state');
     if (!res.ok) throw new Error('Failed to load state');
     
     appState = await res.json();
@@ -189,9 +277,8 @@ async function fetchState(triggerRender = true) {
     // Check if current user still exists on server, if not (e.g. db wiped), log out
     const userExists = appState.users.find(u => u.username.toLowerCase() === currentUser.toLowerCase());
     if (!userExists && currentUser) {
-      // Silently re-register
       try {
-        await fetch('/api/users', {
+        await apiFetch('/api/users', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ username: currentUser })
@@ -202,12 +289,19 @@ async function fetchState(triggerRender = true) {
       }
     }
 
+    // Toggle Admin Dashboard Panel
+    const user = appState.users.find(u => u.username.toLowerCase() === currentUser.toLowerCase());
+    if (user && user.isAdmin) {
+      adminPanel.classList.remove('hidden');
+    } else {
+      adminPanel.classList.add('hidden');
+    }
+
     renderUserPanel();
     if (triggerRender) {
       renderEvents();
       renderLeaderboard();
     } else {
-      // Soft-update: only update elements that don't disrupt user input (payouts, pools, leaderboard data)
       updateDynamicData();
     }
   } catch (err) {
@@ -220,12 +314,14 @@ function renderUserPanel() {
   if (!currentUser) return;
   const user = appState.users.find(u => u.username.toLowerCase() === currentUser.toLowerCase());
   const balance = user ? user.balance : 0;
+  const isAdmin = user && user.isAdmin;
 
   userPanel.innerHTML = `
     <div class="user-info">
       <div class="user-name">
         <i class="fa-solid fa-user-ninja"></i>
         <span>${currentUser}</span>
+        ${isAdmin ? '<span class="admin-badge" style="margin-left: 0.25rem;"><i class="fa-solid fa-crown" style="color:var(--primary); font-size:0.65rem;"></i> Admin</span>' : ''}
       </div>
       <div class="user-balance">
         <i class="fa-solid fa-coins"></i>
@@ -246,6 +342,7 @@ function logout() {
   currentUser = null;
   userPanel.innerHTML = '<div class="loader-spinner"></div>';
   loginModal.classList.remove('hidden');
+  adminPanel.classList.add('hidden');
 }
 
 // Show Login Error
@@ -283,7 +380,9 @@ function renderLeaderboard() {
       <div class="leaderboard-item">
         <span class="rank-val ${rankClass}">${rankIcon}</span>
         <span class="user-val ${isMe}">
-          ${user.username} ${isMe ? '<small>(You)</small>' : ''}
+          ${user.username} 
+          ${user.isAdmin ? '<span class="admin-badge" style="font-size:0.55rem; padding: 0.05rem 0.2rem;"><i class="fa-solid fa-crown" style="font-size:0.5rem; color:var(--primary);"></i> Admin</span>' : ''}
+          ${isMe ? '<small>(You)</small>' : ''}
         </span>
         <span class="wins-val">${user.wins || 0}</span>
         <span class="bal-val">${user.balance.toLocaleString()}</span>
@@ -300,7 +399,6 @@ function renderEvents() {
     return matchesSearch;
   });
 
-  // Sort events so open ones are on top, then newer events first
   const sortedEvents = [...filteredEvents].sort((a, b) => {
     if (a.status !== b.status) {
       return a.status === 'open' ? -1 : 1;
@@ -318,9 +416,12 @@ function renderEvents() {
     return;
   }
 
+  // Find if current user is admin
+  const me = appState.users.find(u => u.username.toLowerCase() === currentUser.toLowerCase());
+  const isUserAdmin = me && me.isAdmin;
+
   eventsList.innerHTML = sortedEvents.map(event => {
     const totalPool = event.bets.reduce((sum, b) => sum + b.amount, 0);
-    const userBets = event.bets.filter(b => b.username.toLowerCase() === currentUser.toLowerCase());
     const isResolved = event.status === 'resolved';
 
     // Group bets by option for calculations
@@ -358,9 +459,11 @@ function renderEvents() {
                 <span><i class="fa-solid fa-coins"></i> Total Pool: ₹${totalPool.toLocaleString()}</span>
               </div>
             </div>
-            <button class="btn-delete-event" onclick="deleteEvent('${event.id}')" title="Delete History">
-              <i class="fa-solid fa-trash"></i>
-            </button>
+            ${isUserAdmin ? `
+              <button class="btn-delete-event" onclick="deleteEvent('${event.id}')" title="Delete History">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            ` : ''}
           </div>
           
           <p class="event-desc">${event.description || 'No description provided.'}</p>
@@ -381,10 +484,9 @@ function renderEvents() {
     // Render Open Event Card
     const selectedOption = selectedOptions[event.id] || '';
     
-    // Generate Option Selector buttons with odds
+    // Generate Option Selector buttons
     const optionButtons = event.options.map(opt => {
       const optPool = optionPools[opt] || 0;
-      // Parimutuel odds calculation: totalPool / optionPool
       const odds = optPool > 0 ? (totalPool / optPool).toFixed(2) + 'x' : 'New';
       const isActive = selectedOption === opt ? 'active' : '';
       
@@ -396,11 +498,18 @@ function renderEvents() {
       `;
     }).join('');
 
-    // List of all user wagers
+    // List of active wagers (with optional remove icons for admins)
     const wagerBadges = event.bets.map(b => `
       <div class="bet-badge">
         <span><strong>${b.username}</strong> on ${b.option}</span>
-        <span>₹${b.amount.toLocaleString()}</span>
+        <div style="display:flex; align-items:center;">
+          <span>₹${b.amount.toLocaleString()}</span>
+          ${isUserAdmin ? `
+            <button class="btn-remove-bet" onclick="removeWager('${event.id}', '${b.username}', '${b.option}')" title="Refund Bet">
+              <i class="fa-solid fa-circle-minus"></i>
+            </button>
+          ` : ''}
+        </div>
       </div>
     `).join('');
 
@@ -414,9 +523,16 @@ function renderEvents() {
               <span><i class="fa-solid fa-clock"></i> Status: Open</span>
             </div>
           </div>
-          <button class="btn-delete-event" onclick="deleteEvent('${event.id}')" title="Delete & Refund">
-            <i class="fa-solid fa-trash"></i>
-          </button>
+          <div style="display:flex; align-items:center;">
+            ${isUserAdmin ? `
+              <button class="btn-edit-event" onclick="openEditEvent('${event.id}')" title="Edit Event Details">
+                <i class="fa-solid fa-pen-to-square"></i>
+              </button>
+              <button class="btn-delete-event" onclick="deleteEvent('${event.id}')" title="Delete & Refund">
+                <i class="fa-solid fa-trash"></i>
+              </button>
+            ` : ''}
+          </div>
         </div>
 
         <p class="event-desc">${event.description || 'No description provided.'}</p>
@@ -460,19 +576,21 @@ function renderEvents() {
           </div>
         ` : ''}
 
-        <!-- Settlement (Admin/Creator resolving options) -->
-        <div class="resolve-panel">
-          <h4>Settle Event:</h4>
-          <div class="resolve-input-group">
-            <select id="resolve-select-${event.id}" class="resolve-select">
-              <option value="" disabled selected>Select Winning Option</option>
-              ${event.options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
-            </select>
-            <button class="btn btn-success btn-sm" onclick="resolveEvent('${event.id}')">
-              Resolve
-            </button>
+        <!-- Settlement (Admin Only) -->
+        ${isUserAdmin ? `
+          <div class="resolve-panel">
+            <h4>Settle Event (Admin Control):</h4>
+            <div class="resolve-input-group">
+              <select id="resolve-select-${event.id}" class="resolve-select">
+                <option value="" disabled selected>Select Winning Option</option>
+                ${event.options.map(opt => `<option value="${opt}">${opt}</option>`).join('')}
+              </select>
+              <button class="btn btn-success btn-sm" onclick="resolveEvent('${event.id}')">
+                Resolve
+              </button>
+            </div>
           </div>
-        </div>
+        ` : ''}
       </div>
     `;
   }).join('');
@@ -482,7 +600,6 @@ function renderEvents() {
 window.selectEventOption = function(eventId, option) {
   selectedOptions[eventId] = option;
   
-  // Update UI buttons state directly
   const card = document.querySelector(`.event-card[data-event-id="${eventId}"]`);
   if (card) {
     const buttons = card.querySelectorAll('.option-select-btn');
@@ -496,24 +613,6 @@ window.selectEventOption = function(eventId, option) {
     });
   }
   
-  updatePayoutProjection(eventId);
-};
-
-// Set quick bet amounts
-window.setQuickBet = function(eventId, amount) {
-  const input = document.getElementById(`bet-input-${eventId}`);
-  if (!input) return;
-
-  const user = appState.users.find(u => u.username.toLowerCase() === currentUser.toLowerCase());
-  const maxBalance = user ? user.balance : 0;
-
-  if (amount === 'max') {
-    input.value = maxBalance;
-  } else {
-    const currentVal = parseInt(input.value) || 0;
-    input.value = Math.min(currentVal + amount, maxBalance);
-  }
-
   updatePayoutProjection(eventId);
 };
 
@@ -534,10 +633,7 @@ window.updatePayoutProjection = function(eventId) {
 
   projectionDiv.classList.remove('hidden');
 
-  // Perform parimutuel math
   const totalPool = event.bets.reduce((sum, b) => sum + b.amount, 0);
-  
-  // Calculate total wagers on selected option
   const optPool = event.bets
     .filter(b => b.option === selectedOption)
     .reduce((sum, b) => sum + b.amount, 0);
@@ -563,7 +659,7 @@ window.placeBet = async function(eventId) {
   const amount = 500; // Fixed bet size of 500!
 
   try {
-    const res = await fetch(`/api/events/${eventId}/bet`, {
+    const res = await apiFetch(`/api/events/${eventId}/bet`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -586,6 +682,19 @@ window.placeBet = async function(eventId) {
   }
 };
 
+// Open Edit Event Modal Dialog
+window.openEditEvent = function(eventId) {
+  const event = appState.events.find(e => e.id === eventId);
+  if (!event) return;
+
+  editEventId.value = event.id;
+  editEventTitle.value = event.title;
+  editEventDesc.value = event.description || '';
+  
+  editEventModal.classList.remove('hidden');
+  editEventTitle.focus();
+};
+
 // Resolve Event API call
 window.resolveEvent = async function(eventId) {
   const select = document.getElementById(`resolve-select-${eventId}`);
@@ -601,7 +710,7 @@ window.resolveEvent = async function(eventId) {
   if (!confirmed) return;
 
   try {
-    const res = await fetch(`/api/events/${eventId}/resolve`, {
+    const res = await apiFetch(`/api/events/${eventId}/resolve`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ winningOption })
@@ -625,7 +734,7 @@ window.deleteEvent = async function(eventId) {
   if (!confirmed) return;
 
   try {
-    const res = await fetch(`/api/events/${eventId}`, { method: 'DELETE' });
+    const res = await apiFetch(`/api/events/${eventId}`, { method: 'DELETE' });
     const data = await res.json();
     if (res.ok) {
       fetchState(true);
@@ -638,20 +747,43 @@ window.deleteEvent = async function(eventId) {
   }
 };
 
+// Remove individual bet API call (Admin Only)
+window.removeWager = async function(eventId, username, option) {
+  const confirmed = confirm(`Are you sure you want to delete and refund ${username}'s bet of ₹500 on option "${option}"?`);
+  if (!confirmed) return;
+
+  try {
+    const res = await apiFetch(`/api/events/${eventId}/bets`, {
+      method: 'DELETE',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        targetUsername: username,
+        option: option
+      })
+    });
+
+    const data = await res.json();
+    if (res.ok) {
+      fetchState(true);
+    } else {
+      alert(data.error || 'Failed to remove bet');
+    }
+  } catch (err) {
+    console.error(err);
+    alert('Error removing bet');
+  }
+};
+
 // Soft-update data in the background (avoid rebuilding layout if user typing)
 function updateDynamicData() {
-  // Update user panel balance
   const user = appState.users.find(u => u.username.toLowerCase() === currentUser.toLowerCase());
   if (user) {
     const balSpan = document.querySelector('.user-balance span');
     if (balSpan) balSpan.textContent = `₹${user.balance.toLocaleString()}`;
   }
 
-  // Update leaderboard
   renderLeaderboard();
 
-  // We only update event pools and existing odds, but we do not reload the whole DOM
-  // to avoid clearing selected option states.
   appState.events.forEach(event => {
     const card = document.querySelector(`.event-card[data-event-id="${event.id}"]`);
     if (!card) return;
@@ -662,7 +794,6 @@ function updateDynamicData() {
       poolAmtSpan.textContent = `₹${totalPool.toLocaleString()}`;
     }
 
-    // Group bets by option
     const optionPools = {};
     event.options.forEach(opt => { optionPools[opt] = 0; });
     event.bets.forEach(b => {
@@ -671,7 +802,6 @@ function updateDynamicData() {
       }
     });
 
-    // Update odds badge text inside options
     if (event.status === 'open') {
       const optButtons = card.querySelectorAll('.option-select-btn');
       optButtons.forEach(btn => {
@@ -684,7 +814,6 @@ function updateDynamicData() {
         }
       });
 
-      // Update projected values if currently estimating
       updatePayoutProjection(event.id);
     }
   });

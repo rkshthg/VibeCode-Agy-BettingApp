@@ -40,6 +40,24 @@ async function writeDb(data) {
   }
 }
 
+// Access Control Middleware (Admin Only)
+async function adminRequired(req, res, next) {
+  const requester = req.headers['x-user-username'];
+  if (!requester) {
+    return res.status(401).json({ error: 'Authentication required. Missing x-user-username header.' });
+  }
+
+  const db = await readDb();
+  const user = db.users.find(u => u.username.toLowerCase() === requester.toLowerCase());
+  
+  if (!user || !user.isAdmin) {
+    return res.status(403).json({ error: 'Admin privileges required.' });
+  }
+
+  req.currentUser = user; // Attach user to request context
+  next();
+}
+
 // API Routes
 
 // Get complete state (users, events, leaderboard)
@@ -76,17 +94,45 @@ app.post('/api/users', async (req, res) => {
     return res.status(400).json({ error: 'Username is already taken' });
   }
 
+  // First user is automatically granted admin status
+  const isFirstUser = db.users.length === 0;
+
   user = {
     id: Date.now().toString(),
     username: trimmedUsername,
     balance: 100000,
-    wins: 0
+    wins: 0,
+    isAdmin: isFirstUser
   };
 
   db.users.push(user);
   await writeDb(db);
 
   res.status(201).json(user);
+});
+
+// Promote another user to Admin (Admin Only)
+app.post('/api/users/promote', adminRequired, async (req, res) => {
+  const { targetUsername } = req.body;
+  if (!targetUsername || typeof targetUsername !== 'string' || !targetUsername.trim()) {
+    return res.status(400).json({ error: 'Target username is required.' });
+  }
+
+  const db = await readDb();
+  const user = db.users.find(u => u.username.toLowerCase() === targetUsername.trim().toLowerCase());
+  
+  if (!user) {
+    return res.status(404).json({ error: 'Target user not found.' });
+  }
+
+  if (user.isAdmin) {
+    return res.status(400).json({ error: 'User is already an Admin.' });
+  }
+
+  user.isAdmin = true;
+  await writeDb(db);
+
+  res.json({ message: `Successfully promoted ${user.username} to Admin.`, user });
 });
 
 // Create an Event
@@ -117,7 +163,7 @@ app.post('/api/events', async (req, res) => {
     creator: creator.trim(),
     status: 'open',
     winningOption: null,
-    bets: []
+    bets: [] // Array of { username, option, amount }
   };
 
   if (newEvent.options.length < 2) {
@@ -130,8 +176,34 @@ app.post('/api/events', async (req, res) => {
   res.status(201).json(newEvent);
 });
 
-// Delete an Event (Refunds active bets)
-app.delete('/api/events/:id', async (req, res) => {
+// Edit Event Details (Admin Only)
+app.put('/api/events/:id', adminRequired, async (req, res) => {
+  const { id } = req.params;
+  const { title, description } = req.body;
+
+  if (!title || typeof title !== 'string' || !title.trim()) {
+    return res.status(400).json({ error: 'Event title is required.' });
+  }
+
+  const db = await readDb();
+  const event = db.events.find(e => e.id === id);
+  if (!event) {
+    return res.status(404).json({ error: 'Event not found.' });
+  }
+
+  if (event.status !== 'open') {
+    return res.status(400).json({ error: 'Cannot edit details of a resolved event.' });
+  }
+
+  event.title = title.trim();
+  event.description = (description || '').trim();
+
+  await writeDb(db);
+  res.json({ message: 'Event updated successfully.', event });
+});
+
+// Delete an Event (Admin Only - Refunds active bets)
+app.delete('/api/events/:id', adminRequired, async (req, res) => {
   const { id } = req.params;
   const db = await readDb();
 
@@ -214,8 +286,50 @@ app.post('/api/events/:id/bet', async (req, res) => {
   res.json({ message: 'Bet placed successfully', event, balance: user.balance });
 });
 
-// Resolve an Event
-app.post('/api/events/:id/resolve', async (req, res) => {
+// Remove an individual bet placed by a user (Admin Only)
+app.delete('/api/events/:id/bets', adminRequired, async (req, res) => {
+  const { id } = req.params;
+  const { targetUsername, option } = req.body;
+
+  if (!targetUsername || !option) {
+    return res.status(400).json({ error: 'Target username and option are required.' });
+  }
+
+  const db = await readDb();
+  const event = db.events.find(e => e.id === id);
+  if (!event) {
+    return res.status(404).json({ error: 'Event not found.' });
+  }
+
+  if (event.status !== 'open') {
+    return res.status(400).json({ error: 'Cannot remove bets from a resolved event.' });
+  }
+
+  const betIndex = event.bets.findIndex(
+    b => b.username.toLowerCase() === targetUsername.toLowerCase() && b.option === option
+  );
+
+  if (betIndex === -1) {
+    return res.status(404).json({ error: 'Bet not found on this event.' });
+  }
+
+  const bet = event.bets[betIndex];
+
+  // Refund the bet amount to the target user's balance
+  const user = db.users.find(u => u.username.toLowerCase() === targetUsername.toLowerCase());
+  if (user) {
+    user.balance += bet.amount;
+  }
+
+  // Remove the bet
+  event.bets.splice(betIndex, 1);
+
+  await writeDb(db);
+  res.json({ message: 'Wager removed and refunded successfully.', event });
+});
+
+// Resolve an Event (Admin Only)
+app.post('/api/events/:id/resolve', adminRequired, async (req, res) => {
   const { id } = req.params;
   const { winningOption } = req.body;
 
@@ -271,7 +385,7 @@ app.post('/api/events/:id/resolve', async (req, res) => {
   res.json({ message: 'Event resolved successfully', event });
 });
 
-// Serve frontend fallback locally for SPA routing
+// Serve frontend fallback for SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, '../public/index.html'));
 });
