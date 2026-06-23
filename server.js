@@ -2,6 +2,7 @@ const express = require('express');
 const localtunnel = require('localtunnel');
 const fs = require('fs');
 const path = require('path');
+const { Redis } = require('@upstash/redis');
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -11,21 +12,42 @@ const DB_FILE = path.join(DB_DIR, 'db.json');
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// Ensure database directory and file exist
-if (!fs.existsSync(DB_DIR)) {
-  fs.mkdirSync(DB_DIR, { recursive: true });
+// Initialize Upstash Redis/KV database if environment variables exist
+let redis = null;
+if (process.env.KV_REST_API_URL && process.env.KV_REST_API_TOKEN) {
+  redis = new Redis({
+    url: process.env.KV_REST_API_URL,
+    token: process.env.KV_REST_API_TOKEN
+  });
+  console.log('Upstash Redis/KV database connection initialized.');
+} else {
+  console.log('Using local JSON file database (data/db.json).');
+  // Ensure database directory and file exist for local mode
+  if (!fs.existsSync(DB_DIR)) {
+    fs.mkdirSync(DB_DIR, { recursive: true });
+  }
+
+  if (!fs.existsSync(DB_FILE)) {
+    const initialData = {
+      users: [],
+      events: []
+    };
+    fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2));
+  }
 }
 
-if (!fs.existsSync(DB_FILE)) {
-  const initialData = {
-    users: [],
-    events: []
-  };
-  fs.writeFileSync(DB_FILE, JSON.stringify(initialData, null, 2));
-}
+// Database Helpers (Async)
+async function readDb() {
+  if (redis) {
+    try {
+      const data = await redis.get('shitcoin_state');
+      return data || { users: [], events: [] };
+    } catch (err) {
+      console.error('Error reading from Redis KV:', err);
+      return { users: [], events: [] };
+    }
+  }
 
-// Database Helpers
-function readDb() {
   try {
     const raw = fs.readFileSync(DB_FILE, 'utf8');
     return JSON.parse(raw);
@@ -35,7 +57,17 @@ function readDb() {
   }
 }
 
-function writeDb(data) {
+async function writeDb(data) {
+  if (redis) {
+    try {
+      await redis.set('shitcoin_state', data);
+      return;
+    } catch (err) {
+      console.error('Error writing to Redis KV:', err);
+      return;
+    }
+  }
+
   try {
     fs.writeFileSync(DB_FILE, JSON.stringify(data, null, 2));
   } catch (err) {
@@ -46,8 +78,8 @@ function writeDb(data) {
 // API Routes
 
 // Get complete state (users, events, leaderboard)
-app.get('/api/state', (req, res) => {
-  const db = readDb();
+app.get('/api/state', async (req, res) => {
+  const db = await readDb();
   
   // Sort users for leaderboard (wins descending, then balance descending)
   const leaderboard = [...db.users].sort((a, b) => {
@@ -65,14 +97,14 @@ app.get('/api/state', (req, res) => {
 });
 
 // Create/Register a user
-app.post('/api/users', (req, res) => {
+app.post('/api/users', async (req, res) => {
   const { username } = req.body;
   if (!username || typeof username !== 'string' || !username.trim()) {
     return res.status(400).json({ error: 'Username is required' });
   }
 
   const trimmedUsername = username.trim();
-  const db = readDb();
+  const db = await readDb();
 
   let user = db.users.find(u => u.username.toLowerCase() === trimmedUsername.toLowerCase());
   if (user) {
@@ -87,13 +119,13 @@ app.post('/api/users', (req, res) => {
   };
 
   db.users.push(user);
-  writeDb(db);
+  await writeDb(db);
 
   res.status(201).json(user);
 });
 
 // Create an Event
-app.post('/api/events', (req, res) => {
+app.post('/api/events', async (req, res) => {
   const { title, description, options, creator } = req.body;
 
   if (!title || !options || !Array.isArray(options) || options.length < 2) {
@@ -104,7 +136,7 @@ app.post('/api/events', (req, res) => {
     return res.status(400).json({ error: 'Event creator username is required' });
   }
 
-  const db = readDb();
+  const db = await readDb();
   
   // Validate creator exists
   const userExists = db.users.some(u => u.username.toLowerCase() === creator.toLowerCase());
@@ -128,15 +160,15 @@ app.post('/api/events', (req, res) => {
   }
 
   db.events.push(newEvent);
-  writeDb(db);
+  await writeDb(db);
 
   res.status(201).json(newEvent);
 });
 
 // Delete an Event (Refunds active bets)
-app.delete('/api/events/:id', (req, res) => {
+app.delete('/api/events/:id', async (req, res) => {
   const { id } = req.params;
-  const db = readDb();
+  const db = await readDb();
 
   const eventIndex = db.events.findIndex(e => e.id === id);
   if (eventIndex === -1) {
@@ -156,13 +188,13 @@ app.delete('/api/events/:id', (req, res) => {
   }
 
   db.events.splice(eventIndex, 1);
-  writeDb(db);
+  await writeDb(db);
 
   res.json({ message: 'Event deleted successfully and bets refunded' });
 });
 
 // Place a Bet on an Event
-app.post('/api/events/:id/bet', (req, res) => {
+app.post('/api/events/:id/bet', async (req, res) => {
   const { id } = req.params;
   const { username, option, amount } = req.body;
 
@@ -171,7 +203,7 @@ app.post('/api/events/:id/bet', (req, res) => {
     return res.status(400).json({ error: 'Bet amount must be exactly 500 ShitCoins' });
   }
 
-  const db = readDb();
+  const db = await readDb();
 
   const user = db.users.find(u => u.username.toLowerCase() === username.toLowerCase());
   if (!user) {
@@ -213,12 +245,12 @@ app.post('/api/events/:id/bet', (req, res) => {
     });
   }
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ message: 'Bet placed successfully', event, balance: user.balance });
 });
 
 // Resolve an Event
-app.post('/api/events/:id/resolve', (req, res) => {
+app.post('/api/events/:id/resolve', async (req, res) => {
   const { id } = req.params;
   const { winningOption } = req.body;
 
@@ -226,7 +258,7 @@ app.post('/api/events/:id/resolve', (req, res) => {
     return res.status(400).json({ error: 'Winning option is required' });
   }
 
-  const db = readDb();
+  const db = await readDb();
 
   const event = db.events.find(e => e.id === id);
   if (!event) {
@@ -270,33 +302,39 @@ app.post('/api/events/:id/resolve', (req, res) => {
   event.status = 'resolved';
   event.winningOption = winningOption;
 
-  writeDb(db);
+  await writeDb(db);
   res.json({ message: 'Event resolved successfully', event });
 });
 
-// Serve frontend fallback for SPA (if any)
+// Serve frontend fallback for SPA
 app.get('*', (req, res) => {
   res.sendFile(path.join(__dirname, 'public', 'index.html'));
 });
 
-const server = app.listen(PORT, async () => {
-  console.log(`ShitCoin server running on port ${PORT}`);
+// Export Express app instance for Vercel Serverless compatibility
+module.exports = app;
 
-  // Start localtunnel programmatically
-  try {
-    const subdomain = process.env.SUBDOMAIN || `shitcoin-bets-${Date.now().toString().slice(-6)}`;
-    const tunnel = await localtunnel({
-      port: PORT,
-      subdomain: subdomain
-    });
-    console.log(`\n--------------------------------------------------`);
-    console.log(`🚀 Public Tunnel URL: ${tunnel.url}`);
-    console.log(`--------------------------------------------------\n`);
+// Start local port listener only if not deployed in Vercel
+if (!process.env.VERCEL) {
+  const server = app.listen(PORT, async () => {
+    console.log(`ShitCoin server running on port ${PORT}`);
 
-    tunnel.on('close', () => {
-      console.log('Public tunnel closed');
-    });
-  } catch (err) {
-    console.error('Error starting localtunnel:', err.message);
-  }
-});
+    // Start localtunnel programmatically
+    try {
+      const subdomain = process.env.SUBDOMAIN || `shitcoin-bets-${Date.now().toString().slice(-6)}`;
+      const tunnel = await localtunnel({
+        port: PORT,
+        subdomain: subdomain
+      });
+      console.log(`\n--------------------------------------------------`);
+      console.log(`🚀 Public Tunnel URL: ${tunnel.url}`);
+      console.log(`--------------------------------------------------\n`);
+
+      tunnel.on('close', () => {
+        console.log('Public tunnel closed');
+      });
+    } catch (err) {
+      console.error('Error starting localtunnel:', err.message);
+    }
+  });
+}
