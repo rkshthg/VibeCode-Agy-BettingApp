@@ -260,27 +260,37 @@ app.post('/api/events/:id/bet', async (req, res) => {
     return res.status(400).json({ error: 'Invalid option selected for this event' });
   }
 
+  // Check if user already placed a bet on this event
+  const existingBet = event.bets.find(
+    b => b.username.toLowerCase() === username.toLowerCase()
+  );
+
+  if (existingBet) {
+    if (existingBet.option === option) {
+      return res.status(400).json({ error: 'You have already placed a bet on this option.' });
+    }
+    // Switch the option, balance remains unchanged!
+    const oldOption = existingBet.option;
+    existingBet.option = option;
+    await writeDb(db);
+    return res.json({ 
+      message: `Bet successfully changed from "${oldOption}" to "${option}".`, 
+      event, 
+      balance: user.balance 
+    });
+  }
+
+  // Deduct balance for new bet
   if (user.balance < parsedAmount) {
     return res.status(400).json({ error: 'Insufficient Shit Coins balance' });
   }
 
-  // Deduct balance
   user.balance -= parsedAmount;
-
-  // Record/aggregate bet
-  const existingBet = event.bets.find(
-    b => b.username.toLowerCase() === username.toLowerCase() && b.option === option
-  );
-
-  if (existingBet) {
-    existingBet.amount += parsedAmount;
-  } else {
-    event.bets.push({
-      username: user.username,
-      option,
-      amount: parsedAmount
-    });
-  }
+  event.bets.push({
+    username: user.username,
+    option,
+    amount: parsedAmount
+  });
 
   await writeDb(db);
   res.json({ message: 'Bet placed successfully', event, balance: user.balance });
